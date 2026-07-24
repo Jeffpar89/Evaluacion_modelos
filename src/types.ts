@@ -1,3 +1,19 @@
+export interface ModelItem {
+  id: string;
+  name: string;
+  status?: 'active' | 'inactive';
+  notes?: string;
+  createdAt?: any;
+  updatedAt?: any;
+}
+
+export interface SavedAudit extends AuditData {
+  id: string;
+  overallScore: string;
+  createdBy: string;
+  createdAt?: any;
+}
+
 export type Score = 1 | 2 | 3 | 4 | 5 | 'N/A';
 
 export interface AuditCriterion {

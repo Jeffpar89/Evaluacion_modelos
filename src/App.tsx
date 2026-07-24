@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   ClipboardCheck, 
-  User, 
+  User as UserIcon, 
   Users, 
   Calendar, 
   Clock, 
@@ -17,12 +17,21 @@ import {
   AlertCircle, 
   CheckCircle2, 
   LayoutDashboard, 
-  FileDown 
+  FileDown,
+  LogOut,
+  Sparkles,
+  Database,
+  Cloud
 } from 'lucide-react';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
-import { AuditData, INITIAL_AUDIT_DATA, Score, AuditCriterion } from './types';
+import { AuditData, INITIAL_AUDIT_DATA, Score, AuditCriterion, ModelItem } from './types';
 import { MODELS } from './constants';
+import { auth, db, logoutGoogle, handleFirestoreError, OperationType, isFirebaseConfigured } from './firebase';
+import { onAuthStateChanged, User } from 'firebase/auth';
+import { collection, onSnapshot, addDoc, serverTimestamp } from 'firebase/firestore';
+import { LoginScreen } from './components/LoginScreen';
+import { ModelManager } from './components/ModelManager';
 
 interface PrintViewProps {
   audit: AuditData;
@@ -38,16 +47,16 @@ const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, sta
     style={{ colorScheme: 'light' }}
   >
     <div className="flex justify-between items-start mb-8 border-b-2 border-zinc-900 pb-4">
-      <div>
-        <h1 className="text-3xl font-black tracking-tighter uppercase italic">
-          <span className="text-rose-600">Tribu</span> <span className="text-zinc-900">1126</span> <span className="text-zinc-900">Models</span>
-        </h1>
-        <p className="text-sm font-mono uppercase tracking-widest opacity-60">Evaluación de Desempeño y Calidad - Modelos</p>
+      <div className="flex items-center gap-4">
+        <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-16 w-auto object-contain" />
+        <div>
+          <p className="text-xs font-mono uppercase tracking-widest opacity-60">Evaluación de Desempeño y Calidad - Modelos</p>
+        </div>
       </div>
       <div className="flex items-start gap-6">
         <div className="text-right">
           <span className="text-[10px] font-bold uppercase text-zinc-400 block">Score Total</span>
-          <span className="text-5xl font-black italic tracking-tighter leading-none">{stats.overallAvg}</span>
+          <span className="text-5xl font-black italic tracking-tighter leading-none text-zinc-900">{stats.overallAvg}</span>
         </div>
         {onBack && (
           <button 
@@ -157,10 +166,64 @@ const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, sta
 ));
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  // Firestore Realtime state for modelos
+  const [models, setModels] = useState<ModelItem[]>([]);
+  const [isModelManagerOpen, setIsModelManagerOpen] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
   const [audit, setAudit] = useState<AuditData>(INITIAL_AUDIT_DATA);
   const [isPrintMode, setIsPrintMode] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const pdfRef = useRef<HTMLDivElement>(null);
+
+  // 1. Escuchar estado de autenticación con Firebase Auth
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setAuthLoading(false);
+      if (user && user.displayName) {
+        setAudit(prev => ({
+          ...prev,
+          header: {
+            ...prev.header,
+            auditorName: prev.header.auditorName || user.displayName || user.email || ''
+          }
+        }));
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // 2. Listener en Tiempo Real (onSnapshot) para la colección 'modelos' en Firestore
+  useEffect(() => {
+    if (!currentUser) return;
+
+    const path = 'modelos';
+    const modelosRef = collection(db, path);
+
+    const unsubscribe = onSnapshot(modelosRef, (snapshot) => {
+      const fetchedModels: ModelItem[] = snapshot.docs.map(doc => ({
+        id: doc.id,
+        name: doc.data().name || '',
+        notes: doc.data().notes || '',
+        status: doc.data().status || 'active',
+        createdAt: doc.data().createdAt
+      }));
+
+      // Ordenar por nombre
+      fetchedModels.sort((a, b) => a.name.localeCompare(b.name));
+      setModels(fetchedModels);
+    }, (error) => {
+      console.error("Error en listener en tiempo real de Firestore (modelos):", error);
+      handleFirestoreError(error, OperationType.LIST, path);
+    });
+
+    return () => unsubscribe();
+  }, [currentUser]);
 
   const handleHeaderChange = (field: keyof AuditData['header'], value: string) => {
     setAudit(prev => ({
@@ -221,6 +284,39 @@ export default function App() {
     return { ecoAvg, perfAvg, stratAvg, profAvg, overallAvg };
   }, [audit]);
 
+  // Guardar evaluación en Firestore colección 'evaluaciones'
+  const handleSaveAuditToFirestore = async () => {
+    if (!audit.header.modelName) {
+      alert('Por favor selecciona una Modelo antes de guardar la evaluación.');
+      return;
+    }
+
+    setSaveLoading(true);
+    setSaveSuccessMsg(null);
+
+    const path = 'evaluaciones';
+    try {
+      await addDoc(collection(db, path), {
+        ...audit,
+        overallScore: stats.overallAvg,
+        createdBy: currentUser?.email || currentUser?.uid || 'Anónimo',
+        createdAt: serverTimestamp()
+      });
+      setSaveSuccessMsg(`¡Evaluación de "${audit.header.modelName}" guardada con éxito en Firestore!`);
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (err) {
+      console.error('Error al guardar evaluación en Firestore:', err);
+      alert('Error al guardar en Firestore. Verifica que las credenciales de Firebase estén configuradas.');
+      try {
+        handleFirestoreError(err, OperationType.CREATE, path);
+      } catch (e) {
+        // Logged
+      }
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   const exportToPdf = () => {
     const element = pdfRef.current;
     if (!element) {
@@ -231,7 +327,6 @@ export default function App() {
     setIsGeneratingPdf(true);
     window.scrollTo(0, 0);
 
-    // Give the UI a moment to show the loading state
     setTimeout(async () => {
       try {
         const opt = {
@@ -246,54 +341,28 @@ export default function App() {
             removeContainer: true,
             // @ts-ignore
             onclone: (clonedDoc) => {
-              // THE NUCLEAR OPTION: Remove all existing stylesheets to prevent html2canvas 
-              // from trying to parse Tailwind 4's oklch/oklab colors which it doesn't understand.
               const styleSheets = Array.from(clonedDoc.querySelectorAll('style, link[rel="stylesheet"]'));
               styleSheets.forEach((s: any) => s.remove());
 
-              // Inject a completely safe, HEX-only stylesheet for the PDF
               const safeStyle = clonedDoc.createElement('style');
               safeStyle.innerHTML = `
                 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-                
-                * { 
-                  box-sizing: border-box;
-                  -webkit-print-color-adjust: exact;
-                }
-                
-                body, html { 
-                  margin: 0; 
-                  padding: 0; 
-                  background: #ffffff;
-                  font-family: 'Inter', sans-serif;
-                  font-size: 11px;
-                }
-
-                #pdf-export-container {
-                  width: 750px !important;
-                  margin: 0 auto !important;
-                  background: #ffffff !important;
-                  color: #18181b !important;
-                  display: block !important;
-                  position: relative !important;
-                }
-
+                * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
+                body, html { margin: 0; padding: 0; background: #ffffff; font-family: 'Inter', sans-serif; font-size: 11px; }
+                #pdf-export-container { width: 750px !important; margin: 0 auto !important; background: #ffffff !important; color: #18181b !important; display: block !important; position: relative !important; }
                 .bg-white { background-color: #ffffff !important; }
                 .bg-zinc-50 { background-color: #fafafa !important; }
                 .bg-zinc-900 { background-color: #18181b !important; }
-                
                 .text-zinc-900 { color: #18181b !important; }
                 .text-zinc-600 { color: #52525b !important; }
                 .text-zinc-400 { color: #a1a1aa !important; }
                 .text-white { color: #ffffff !important; }
                 .text-rose-600 { color: #e11d48 !important; }
-                
                 .border-zinc-900 { border-color: #18181b !important; }
                 .border-zinc-200 { border-color: #e4e4e7 !important; }
                 .border-zinc-100 { border-color: #f4f4f5 !important; }
                 .border-zinc-50 { border-color: #fafafa !important; }
                 .border-white\\/10 { border-color: rgba(255, 255, 255, 0.1) !important; }
-                
                 .font-black { font-weight: 900 !important; }
                 .font-bold { font-weight: 700 !important; }
                 .font-medium { font-weight: 500 !important; }
@@ -302,7 +371,6 @@ export default function App() {
                 .tracking-tighter { letter-spacing: -0.05em !important; }
                 .tracking-tight { letter-spacing: -0.025em !important; }
                 .tracking-widest { letter-spacing: 0.1em !important; }
-                
                 .text-3xl { font-size: 1.5rem !important; }
                 .text-5xl { font-size: 2.5rem !important; }
                 .leading-none { line-height: 1 !important; }
@@ -312,7 +380,6 @@ export default function App() {
                 .text-sm { font-size: 0.75rem !important; }
                 .text-xs { font-size: 0.65rem !important; }
                 .text-\\[10px\\] { font-size: 9px !important; }
-                
                 .p-8 { padding: 1.25rem !important; }
                 .p-6 { padding: 1rem !important; }
                 .pb-4 { padding-bottom: 0.75rem !important; }
@@ -322,7 +389,6 @@ export default function App() {
                 .py-2 { padding-top: 0.35rem !important; padding-bottom: 0.35rem !important; }
                 .py-3 { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
                 .pr-4 { padding-right: 0.75rem !important; }
-                
                 .mb-8 { margin-bottom: 1rem !important; }
                 .mb-10 { margin-bottom: 1.25rem !important; }
                 .mb-4 { margin-bottom: 0.5rem !important; }
@@ -330,44 +396,34 @@ export default function App() {
                 .mt-1 { margin-top: 0.15rem !important; }
                 .mt-12 { margin-top: 1.5rem !important; }
                 .mt-16 { margin-top: 2rem !important; }
-                
                 .grid { display: grid !important; }
                 .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
                 .gap-6 { gap: 1rem !important; }
-                
                 .flex { display: flex !important; }
                 .justify-between { justify-content: space-between !important; }
                 .items-start { align-items: flex-start !important; }
                 .items-end { align-items: flex-end !important; }
                 .items-center { align-items: center !important; }
-                
                 .border-b-2 { border-bottom-width: 2px !important; }
                 .border-b { border-bottom-width: 1px !important; }
                 .border-t { border-top-width: 1px !important; }
                 .border { border-width: 1px !important; }
-                
                 .rounded-2xl { border-radius: 0.75rem !important; }
                 .rounded-3xl { border-radius: 1rem !important; }
-                
                 .w-full { width: 100% !important; }
                 .w-48 { width: 10rem !important; }
                 .max-w-4xl { max-width: 50rem !important; }
-                
                 table { width: 100% !important; border-collapse: collapse !important; }
                 .opacity-60 { opacity: 0.6 !important; }
                 .opacity-50 { opacity: 0.5 !important; }
                 .opacity-30 { opacity: 0.3 !important; }
-                
                 .space-y-2 > * + * { margin-top: 0.35rem !important; }
                 .space-y-4 > * + * { margin-top: 0.75rem !important; }
                 .space-y-6 > * + * { margin-top: 1rem !important; }
-                
-                /* Hide elements that shouldn't be in PDF */
                 .print\\:hidden { display: none !important; }
               `;
               clonedDoc.head.appendChild(safeStyle);
 
-              // Ensure the container is visible and correctly sized
               const container = clonedDoc.getElementById('pdf-export-container');
               if (container) {
                 container.style.position = 'relative';
@@ -385,17 +441,48 @@ export default function App() {
         await html2pdf().set(opt).from(element).save();
       } catch (error) {
         console.error('Error generating PDF:', error);
-        alert('Hubo un error al generar el PDF. Por favor, usa el botón "Vista Previa e Impresión" y elige "Guardar como PDF" en el menú de impresión de tu navegador.');
+        alert('Hubo un error al generar el PDF.');
       } finally {
         setIsGeneratingPdf(false);
       }
     }, 150);
   };
 
+  // State 1: Cargando Auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-blue-950 via-slate-950 to-black flex items-center justify-center text-slate-100">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-12 h-12 border-4 border-slate-800 border-t-cyan-500 rounded-full animate-spin"></div>
+          <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // State 2: REQUISITO CLAVE - Si el usuario no ha iniciado sesión, la pantalla principal se oculta
+  // y se muestra ÚNICAMENTE el botón/pantalla de Iniciar sesión con Google.
+  if (!currentUser) {
+    return <LoginScreen />;
+  }
+
+  // Lista combinada de modelos (modelos reales de Firestore + fallback de constantes)
+  const availableModelsList = models.length > 0 
+    ? models.map(m => m.name)
+    : MODELS;
+
   return (
-    <div className="min-h-screen bg-[#F5F5F3] text-zinc-900 font-sans selection:bg-zinc-900 selection:text-white pb-24">
+    <div className="min-h-screen bg-gradient-to-b from-blue-950 via-slate-950 to-black text-slate-100 font-sans selection:bg-cyan-600 selection:text-white pb-24 relative">
+      
+      {/* Modal de gestión de modelos en Firestore */}
+      <ModelManager 
+        models={models}
+        isOpen={isModelManagerOpen}
+        onClose={() => setIsModelManagerOpen(false)}
+      />
+
       {isPrintMode ? (
-        <div className="relative z-[100] bg-white">
+        <div className="relative z-[100] bg-white text-zinc-900 min-h-screen p-6">
           <PrintView 
             audit={audit} 
             stats={stats} 
@@ -405,7 +492,7 @@ export default function App() {
           <div className="fixed bottom-8 right-8 print:hidden flex gap-4">
             <button 
               onClick={() => window.print()}
-              className="bg-zinc-900 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center justify-center"
+              className="bg-cyan-600 hover:bg-cyan-500 text-white p-4 rounded-full shadow-2xl hover:scale-110 transition-transform flex items-center justify-center border border-cyan-400/30"
               title="Imprimir o Guardar como PDF"
             >
               <Printer size={24} />
@@ -414,337 +501,428 @@ export default function App() {
         </div>
       ) : (
         <>
-          {/* Header */}
-          <header className="bg-white border-b border-zinc-200 sticky top-0 z-50 px-6 py-4">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="bg-zinc-900 p-2 rounded-xl">
-              <ClipboardCheck className="text-white" size={24} />
-            </div>
-            <div>
-              <h1 className="text-xl font-black italic uppercase tracking-tighter">
-                <span className="text-rose-600">Tribu</span> <span className="text-zinc-900">1126</span>
-              </h1>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Audit System v1.0</p>
-            </div>
-          </div>
-          
-          <div className="hidden md:flex items-center gap-8">
-            <div className="text-right">
-              <p className="text-[10px] font-bold uppercase text-zinc-400">Promedio General</p>
-              <p className="text-2xl font-black italic leading-none">{stats.overallAvg}</p>
-            </div>
-            <button 
-              onClick={() => setIsPrintMode(true)}
-              className="bg-zinc-900 text-white px-6 py-3 rounded-full text-xs font-bold uppercase tracking-widest hover:bg-zinc-800 transition-all flex items-center gap-2 shadow-xl shadow-zinc-200"
-            >
-              <Printer size={16} />
-              Vista Previa e Impresión
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-7xl mx-auto px-6 py-12">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
-          
-          {/* Form Side */}
-          <div className="lg:col-span-8 space-y-12">
-            
-            {/* Header Info */}
-            <section className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-zinc-200">
-              <div className="flex items-center gap-3 mb-8">
-                <LayoutDashboard className="text-zinc-400" size={20} />
-                <h2 className="text-sm font-bold uppercase tracking-widest">Información General</h2>
-              </div>
+          {/* Header con Perfil de Usuario y Gestión Firestore */}
+          <header className="bg-slate-950/80 backdrop-blur-md border-b border-slate-800/80 sticky top-0 z-40 px-6 py-4">
+            <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
               
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Fecha de Evaluación</label>
-                  <div className="relative">
-                    <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
-                    <input 
-                      type="date" 
-                      value={audit.header.date}
-                      onChange={(e) => handleHeaderChange('date', e.target.value)}
-                      className="w-full bg-zinc-50 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Periodo Evaluado</label>
-                  <div className="relative">
-                    <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
-                    <input 
-                      type="text" 
-                      placeholder="Ej. Primera quincena de Marzo"
-                      value={audit.header.period}
-                      onChange={(e) => handleHeaderChange('period', e.target.value)}
-                      className="w-full bg-zinc-50 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Auditor(a)</label>
-                  <div className="relative">
-                    <User className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
-                    <input 
-                      type="text" 
-                      placeholder="Nombre del Auditor"
-                      value={audit.header.auditorName}
-                      onChange={(e) => handleHeaderChange('auditorName', e.target.value)}
-                      className="w-full bg-zinc-50 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Modelo Evaluada</label>
-                  <div className="relative">
-                    <Star className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
-                    <select 
-                      value={audit.header.modelName}
-                      onChange={(e) => handleHeaderChange('modelName', e.target.value)}
-                      className="w-full bg-zinc-50 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-zinc-900 transition-all font-medium appearance-none"
-                    >
-                      <option value="">Seleccionar Modelo</option>
-                      {MODELS.map(model => (
-                        <option key={model} value={model}>{model}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="col-span-full space-y-2">
-                  <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1">Monitor(a) en Turno</label>
-                  <div className="relative">
-                    <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-300" size={18} />
-                    <input 
-                      type="text" 
-                      placeholder="Nombre del Monitor a cargo"
-                      value={audit.header.monitorName}
-                      onChange={(e) => handleHeaderChange('monitorName', e.target.value)}
-                      className="w-full bg-zinc-50 border-none rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-zinc-900 transition-all font-medium"
-                    />
-                  </div>
+              <div className="flex items-center gap-3">
+                <img 
+                  src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" 
+                  alt="Logo" 
+                  className="h-14 w-auto object-contain" 
+                />
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1">
+                    <Cloud size={12} className="text-cyan-400" />
+                    Firestore Live Sync Active
+                  </p>
                 </div>
               </div>
-            </section>
 
-            {/* Sections */}
-            {(Object.keys(audit.sections) as Array<keyof AuditData['sections']>).map((key) => {
-              const section = audit.sections[key];
-              return (
-                <section key={key} className="space-y-6">
-                  <div className="flex items-end justify-between px-2">
-                    <div>
-                      <h2 className="text-2xl font-black italic uppercase tracking-tighter leading-none">{section.title}</h2>
-                      <p className="text-xs text-zinc-400 mt-2 max-w-md">{section.description}</p>
+              {/* Central/Right Action Controls */}
+              <div className="flex items-center gap-3 flex-wrap justify-end">
+                
+                {/* Botón Administrar Modelos Firestore */}
+                <button
+                  onClick={() => setIsModelManagerOpen(true)}
+                  className="bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-slate-200 px-4 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider transition-all duration-300 flex items-center gap-2"
+                >
+                  <Users size={16} className="text-cyan-400" />
+                  <span>Modelos Firestore ({models.length})</span>
+                </button>
+
+                <div className="hidden lg:block text-right px-3 border-l border-r border-slate-800">
+                  <p className="text-[10px] font-bold uppercase text-slate-400">Promedio General</p>
+                  <p className="text-2xl font-black italic leading-none text-white">{stats.overallAvg}</p>
+                </div>
+
+                <button 
+                  onClick={() => setIsPrintMode(true)}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700/80 px-5 py-2.5 rounded-full text-xs font-bold uppercase tracking-widest transition-all duration-300 flex items-center gap-2 shadow-md"
+                >
+                  <Printer size={16} />
+                  <span>Vista Previa</span>
+                </button>
+
+                {/* Perfil de Google Auth y Logout */}
+                <div className="flex items-center gap-3 pl-3 border-l border-slate-800">
+                  {currentUser.photoURL ? (
+                    <img 
+                      src={currentUser.photoURL} 
+                      alt={currentUser.displayName || 'Usuario'} 
+                      className="w-9 h-9 rounded-full border border-slate-700 object-cover"
+                    />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-slate-800 text-cyan-400 border border-slate-700 flex items-center justify-center font-bold text-xs">
+                      {(currentUser.displayName || currentUser.email || 'U').charAt(0).toUpperCase()}
                     </div>
-                    <div className="text-right">
-                      <span className="text-[10px] font-bold uppercase text-zinc-400 block">Avg</span>
-                      <span className="text-3xl font-black italic">{calculateAverage(section.criteria)}</span>
-                    </div>
+                  )}
+
+                  <div className="hidden sm:block text-left text-xs">
+                    <p className="font-bold text-slate-100 leading-tight truncate max-w-[120px]">
+                      {currentUser.displayName || 'Auditor'}
+                    </p>
+                    <p className="text-[10px] text-slate-400 truncate max-w-[120px]">
+                      {currentUser.email}
+                    </p>
                   </div>
 
-                  <div className="space-y-4">
-                    {section.criteria.map(c => (
-                      <div key={c.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-zinc-200 hover:border-zinc-300 transition-all group">
-                        <div className="flex flex-col md:flex-row gap-6">
-                          <div className="flex-1">
-                            <p className="font-bold text-zinc-800 mb-4 group-hover:text-zinc-900 transition-colors">{c.label}</p>
-                            <div className="flex flex-wrap gap-2">
-                              {([1, 2, 3, 4, 5, 'N/A'] as Score[]).map(v => (
-                                <button
-                                  key={v}
-                                  type="button"
-                                  onClick={() => handleCriterionChange(key, c.id, 'score', v)}
-                                  className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold transition-all ${
-                                    c.score === v 
-                                      ? 'bg-zinc-900 text-white scale-110 shadow-lg' 
-                                      : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200'
-                                  }`}
-                                >
-                                  {v}
-                                </button>
-                              ))}
+                  <button
+                    onClick={logoutGoogle}
+                    className="p-2 text-slate-400 hover:text-amber-400 hover:bg-slate-800/60 rounded-xl transition-all duration-300"
+                    title="Cerrar Sesión"
+                  >
+                    <LogOut size={18} />
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </header>
+
+          {/* Banner de Aviso si las credenciales de Firebase no han sido pegadas aún */}
+          {!isFirebaseConfigured() && (
+            <div className="bg-amber-950/60 border-b border-amber-500/30 text-amber-200 px-6 py-2.5 text-xs font-bold text-center tracking-wide flex items-center justify-center gap-2">
+              <Sparkles size={16} className="text-amber-400" />
+              <span>
+                Recordatorio: Configuración de Firebase requerida en <code className="bg-amber-900/80 px-1.5 py-0.5 rounded">src/firebase.ts</code>.
+              </span>
+            </div>
+          )}
+
+          {saveSuccessMsg && (
+            <div className="max-w-7xl mx-auto px-6 mt-4">
+              <div className="bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 px-6 py-4 rounded-2xl text-xs font-bold flex items-center gap-3 shadow-lg animate-fade-in">
+                <CheckCircle2 size={20} className="text-emerald-400" />
+                <span>{saveSuccessMsg}</span>
+              </div>
+            </div>
+          )}
+
+          <main className="max-w-7xl mx-auto px-6 py-12">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+              
+              {/* Form Side */}
+              <div className="lg:col-span-8 space-y-12">
+                
+                {/* Header Info */}
+                <section className="bg-slate-900/60 backdrop-blur-md p-8 rounded-[2.5rem] shadow-xl border border-slate-800">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-3">
+                      <LayoutDashboard className="text-cyan-400" size={20} />
+                      <h2 className="text-sm font-bold uppercase tracking-widest text-slate-200">Información General</h2>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsModelManagerOpen(true)}
+                      className="text-xs font-bold text-cyan-400 hover:text-cyan-300 flex items-center gap-1.5 uppercase tracking-wider transition-colors duration-300"
+                    >
+                      <Database size={14} />
+                      <span>Gestionar Modelos ({models.length})</span>
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 ml-1">Fecha de Evaluación</label>
+                      <div className="relative">
+                        <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                        <input 
+                          type="date" 
+                          value={audit.header.date}
+                          onChange={(e) => handleHeaderChange('date', e.target.value)}
+                          className="w-full bg-slate-950/80 border border-slate-800/80 text-white rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 ml-1">Periodo Evaluado</label>
+                      <div className="relative">
+                        <Clock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="Ej. Primera quincena de Marzo"
+                          value={audit.header.period}
+                          onChange={(e) => handleHeaderChange('period', e.target.value)}
+                          className="w-full bg-slate-950/80 border border-slate-800/80 text-white placeholder-slate-500 rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 ml-1">Auditor(a)</label>
+                      <div className="relative">
+                        <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="Nombre del Auditor"
+                          value={audit.header.auditorName}
+                          onChange={(e) => handleHeaderChange('auditorName', e.target.value)}
+                          className="w-full bg-slate-950/80 border border-slate-800/80 text-white placeholder-slate-500 rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 font-medium"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Modelo Evaluada - Sincronizada en tiempo real desde Firestore 'modelos' */}
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 ml-1">
+                          Modelo Evaluada (Firestore)
+                        </label>
+                      </div>
+                      <div className="relative">
+                        <Star className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                        <select 
+                          value={audit.header.modelName}
+                          onChange={(e) => handleHeaderChange('modelName', e.target.value)}
+                          className="w-full bg-slate-950/80 border border-slate-800/80 text-white rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 font-medium appearance-none"
+                        >
+                          <option value="" className="bg-slate-900 text-slate-300">Seleccionar Modelo</option>
+                          {availableModelsList.map(model => (
+                            <option key={model} value={model} className="bg-slate-900 text-white">{model}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="col-span-full space-y-2">
+                      <label className="text-[10px] font-bold uppercase text-slate-400 ml-1">Monitor(a) en Turno</label>
+                      <div className="relative">
+                        <Users className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
+                        <input 
+                          type="text" 
+                          placeholder="Nombre del Monitor a cargo"
+                          value={audit.header.monitorName}
+                          onChange={(e) => handleHeaderChange('monitorName', e.target.value)}
+                          className="w-full bg-slate-950/80 border border-slate-800/80 text-white placeholder-slate-500 rounded-2xl py-4 pl-12 pr-4 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 font-medium"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Sections */}
+                {(Object.keys(audit.sections) as Array<keyof AuditData['sections']>).map((key) => {
+                  const section = audit.sections[key];
+                  return (
+                    <section key={key} className="space-y-6">
+                      <div className="flex items-end justify-between px-2">
+                        <div>
+                          <h2 className="text-2xl font-black italic uppercase tracking-tighter leading-none text-white">{section.title}</h2>
+                          <p className="text-xs text-slate-400 mt-2 max-w-md">{section.description}</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[10px] font-bold uppercase text-slate-400 block">Avg</span>
+                          <span className="text-3xl font-black italic text-cyan-400">{calculateAverage(section.criteria)}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        {section.criteria.map(c => (
+                          <div key={c.id} className="bg-slate-900/40 backdrop-blur-sm p-6 rounded-[2rem] shadow-sm border border-slate-800/80 hover:border-slate-700/80 transition-all duration-300 group">
+                            <div className="flex flex-col md:flex-row gap-6">
+                              <div className="flex-1">
+                                <p className="font-bold text-slate-100 mb-4 group-hover:text-white transition-colors">{c.label}</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {([1, 2, 3, 4, 5, 'N/A'] as Score[]).map(v => (
+                                    <button
+                                      key={v}
+                                      type="button"
+                                      onClick={() => handleCriterionChange(key, c.id, 'score', v)}
+                                      className={`w-10 h-10 rounded-lg flex items-center justify-center text-sm font-bold transition-all duration-300 ${
+                                        c.score === v 
+                                          ? 'bg-cyan-600 text-white scale-105 shadow-lg shadow-cyan-950/50 border border-cyan-400/50' 
+                                          : 'bg-slate-800/80 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700/50'
+                                      }`}
+                                    >
+                                      {v}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="md:w-1/3">
+                                <label className="text-[10px] font-bold uppercase text-slate-400 ml-1 mb-2 block">Observaciones / Hallazgos</label>
+                                <textarea 
+                                  value={c.observations}
+                                  onChange={(e) => handleCriterionChange(key, c.id, 'observations', e.target.value)}
+                                  className="w-full bg-slate-950/80 border border-slate-800 text-slate-100 placeholder-slate-600 rounded-2xl p-4 text-sm focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 min-h-[100px] resize-none"
+                                  placeholder="Escribe aquí..."
+                                />
+                              </div>
                             </div>
                           </div>
-                          <div className="md:w-1/3">
-                            <label className="text-[10px] font-bold uppercase text-zinc-400 ml-1 mb-2 block">Observaciones / Hallazgos</label>
-                            <textarea 
-                              value={c.observations}
-                              onChange={(e) => handleCriterionChange(key, c.id, 'observations', e.target.value)}
-                              className="w-full bg-zinc-50 border-none rounded-2xl p-4 text-sm focus:ring-2 focus:ring-zinc-900 transition-all min-h-[100px] resize-none"
-                              placeholder="Escribe aquí..."
-                            />
+                        ))}
+                      </div>
+                    </section>
+                  );
+                })}
+
+                {/* Results Section */}
+                <section className="space-y-8">
+                  <h2 className="text-2xl font-black italic uppercase tracking-tighter px-2 text-white">RESUMEN DE LA EVALUACIÓN Y PLAN DE ACCIÓN</h2>
+                  
+                  <div className="grid grid-cols-1 gap-6">
+                    <div className="bg-slate-900/80 backdrop-blur-md text-white p-8 rounded-[2.5rem] shadow-2xl border border-slate-800">
+                      <div className="flex items-center gap-3 mb-6">
+                        <MessageSquare className="text-cyan-400" size={20} />
+                        <h3 className="text-sm font-bold uppercase tracking-widest text-slate-200">Fortalezas</h3>
+                      </div>
+                      <textarea 
+                        value={audit.results.strengths}
+                        onChange={(e) => handleResultChange('strengths', e.target.value)}
+                        className="w-full bg-slate-950/80 border border-slate-800 rounded-3xl p-6 text-sm text-slate-100 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 min-h-[120px] placeholder:text-slate-600"
+                        placeholder="Describe los puntos fuertes de la modelo..."
+                      />
+                      
+                      <div className="mt-8">
+                        <div className="flex items-center gap-3 mb-4">
+                          <AlertCircle className="text-amber-400" size={20} />
+                          <h3 className="text-sm font-bold uppercase tracking-widest text-slate-200">Áreas de Mejora</h3>
+                        </div>
+                        <textarea 
+                          value={audit.results.improvementAreas}
+                          onChange={(e) => handleResultChange('improvementAreas', e.target.value)}
+                          className="w-full bg-slate-950/80 border border-slate-800 rounded-3xl p-6 text-sm text-slate-100 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 min-h-[120px] placeholder:text-slate-600"
+                          placeholder="Identifica los aspectos a corregir..."
+                        />
+                      </div>
+
+                      <div className="mt-8">
+                        <label className="text-[10px] font-bold uppercase text-slate-400 ml-1 mb-2 block">Acuerdos y Compromisos</label>
+                        <input 
+                          type="text"
+                          value={audit.results.agreements}
+                          onChange={(e) => handleResultChange('agreements', e.target.value)}
+                          className="w-full bg-slate-950/80 border border-slate-800 rounded-2xl px-6 py-4 text-sm text-slate-100 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all duration-300 placeholder:text-slate-600"
+                          placeholder="Define los compromisos acordados..."
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              {/* Sidebar Summary */}
+              <div className="lg:col-span-4">
+                <div className="sticky top-28 space-y-6">
+                  <div className="bg-slate-900/70 backdrop-blur-md p-8 rounded-[2.5rem] shadow-2xl border border-slate-800 text-slate-100 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-600/10 rounded-full -mr-16 -mt-16 pointer-events-none"></div>
+                    
+                    <div className="relative z-10">
+                      <h3 className="text-sm font-bold uppercase tracking-widest mb-8 text-slate-200">Resumen de Evaluación</h3>
+                      
+                      <div className="space-y-6">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-400 uppercase">Ecosistema</span>
+                          <span className="text-lg font-black italic text-cyan-400">{stats.ecoAvg}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-400 uppercase">Desempeño</span>
+                          <span className="text-lg font-black italic text-cyan-400">{stats.perfAvg}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-400 uppercase">Estrategia</span>
+                          <span className="text-lg font-black italic text-cyan-400">{stats.stratAvg}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-bold text-slate-400 uppercase">Profesionalismo</span>
+                          <span className="text-lg font-black italic text-cyan-400">{stats.profAvg}</span>
+                        </div>
+                        
+                        <div className="pt-6 border-t border-slate-800 flex justify-between items-end">
+                          <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase block">Score Total</span>
+                            <span className="text-5xl font-black italic tracking-tighter leading-none text-white">{stats.overallAvg}</span>
+                          </div>
+                          <div className="text-right">
+                            {parseFloat(stats.overallAvg) >= 4 ? (
+                              <div className="flex items-center gap-1 text-emerald-400 font-bold text-xs uppercase">
+                                <CheckCircle2 size={14} />
+                                Óptimo
+                              </div>
+                            ) : parseFloat(stats.overallAvg) >= 3 ? (
+                              <div className="flex items-center gap-1 text-amber-400 font-bold text-xs uppercase">
+                                <AlertCircle size={14} />
+                                Regular
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1 text-amber-400 font-bold text-xs uppercase">
+                                <AlertCircle size={14} />
+                                Crítico
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
 
-            {/* Results Section */}
-            <section className="space-y-8">
-              <h2 className="text-2xl font-black italic uppercase tracking-tighter px-2">RESUMEN DE LA EVALUACIÓN Y PLAN DE ACCIÓN</h2>
-              
-              <div className="grid grid-cols-1 gap-6">
-                <div className="bg-zinc-900 text-white p-8 rounded-[3rem] shadow-2xl">
-                  <div className="flex items-center gap-3 mb-6">
-                    <MessageSquare className="text-white/40" size={20} />
-                    <h3 className="text-sm font-bold uppercase tracking-widest">Fortalezas</h3>
-                  </div>
-                  <textarea 
-                    value={audit.results.strengths}
-                    onChange={(e) => handleResultChange('strengths', e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 text-sm focus:ring-2 focus:ring-white/20 transition-all min-h-[120px] placeholder:text-white/20"
-                    placeholder="Describe los puntos fuertes de la modelo..."
-                  />
-                  
-                  <div className="mt-8">
-                    <div className="flex items-center gap-3 mb-4">
-                      <AlertCircle className="text-white/40" size={20} />
-                      <h3 className="text-sm font-bold uppercase tracking-widest">Áreas de Mejora</h3>
-                    </div>
-                    <textarea 
-                      value={audit.results.improvementAreas}
-                      onChange={(e) => handleResultChange('improvementAreas', e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-3xl p-6 text-sm focus:ring-2 focus:ring-white/20 transition-all min-h-[120px] placeholder:text-white/20"
-                      placeholder="Identifica los aspectos a corregir..."
-                    />
-                  </div>
+                      <div className="flex flex-col gap-3 mt-10">
+                        {/* Botón de Guardar en Firestore */}
+                        <button 
+                          onClick={handleSaveAuditToFirestore}
+                          disabled={saveLoading}
+                          className="w-full bg-cyan-600 hover:bg-cyan-500 text-white py-4 rounded-[2rem] font-bold uppercase tracking-widest text-xs transition-all duration-300 flex items-center justify-center gap-2 shadow-xl shadow-cyan-950/40 border border-cyan-400/30 disabled:opacity-50"
+                        >
+                          {saveLoading ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              <span>Guardando en Firestore...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Save size={18} />
+                              Guardar en Firestore
+                            </>
+                          )}
+                        </button>
 
-                  <div className="mt-8">
-                    <label className="text-[10px] font-bold uppercase text-white/40 ml-1 mb-2 block">Acuerdos y Compromisos</label>
-                    <input 
-                      type="text"
-                      value={audit.results.agreements}
-                      onChange={(e) => handleResultChange('agreements', e.target.value)}
-                      className="w-full bg-white/5 border border-white/10 rounded-2xl px-6 py-4 text-sm focus:ring-2 focus:ring-white/20 transition-all"
-                      placeholder="Define los compromisos acordados..."
-                    />
-                  </div>
-                </div>
-              </div>
-            </section>
-          </div>
+                        <button 
+                          onClick={() => setIsPrintMode(true)}
+                          className="w-full bg-slate-800/80 text-slate-200 py-3.5 rounded-[2rem] font-bold uppercase tracking-widest text-[10px] hover:bg-slate-700 transition-all duration-300 flex items-center justify-center gap-2 border border-slate-700"
+                        >
+                          <Printer size={16} />
+                          Vista Previa e Impresión
+                        </button>
 
-          {/* Sidebar Summary */}
-          <div className="lg:col-span-4">
-            <div className="sticky top-28 space-y-6">
-              <div className="bg-white p-8 rounded-[2.5rem] shadow-xl border border-zinc-200 overflow-hidden relative">
-                <div className="absolute top-0 right-0 w-32 h-32 bg-zinc-50 rounded-full -mr-16 -mt-16 z-0"></div>
-                
-                <div className="relative z-10">
-                  <h3 className="text-sm font-bold uppercase tracking-widest mb-8">Resumen de Evaluación</h3>
-                  
-                  <div className="space-y-6">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-zinc-400 uppercase">Ecosistema</span>
-                      <span className="text-lg font-black italic">{stats.ecoAvg}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-zinc-400 uppercase">Desempeño</span>
-                      <span className="text-lg font-black italic">{stats.perfAvg}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-zinc-400 uppercase">Estrategia</span>
-                      <span className="text-lg font-black italic">{stats.stratAvg}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-zinc-400 uppercase">Profesionalismo</span>
-                      <span className="text-lg font-black italic">{stats.profAvg}</span>
-                    </div>
-                    
-                    <div className="pt-6 border-t border-zinc-100 flex justify-between items-end">
-                      <div>
-                        <span className="text-[10px] font-bold text-zinc-400 uppercase block">Score Total</span>
-                        <span className="text-5xl font-black italic tracking-tighter leading-none">{stats.overallAvg}</span>
-                      </div>
-                      <div className="text-right">
-                        {parseFloat(stats.overallAvg) >= 4 ? (
-                          <div className="flex items-center gap-1 text-emerald-500 font-bold text-xs uppercase">
-                            <CheckCircle2 size={14} />
-                            Óptimo
-                          </div>
-                        ) : parseFloat(stats.overallAvg) >= 3 ? (
-                          <div className="flex items-center gap-1 text-amber-500 font-bold text-xs uppercase">
-                            <AlertCircle size={14} />
-                            Regular
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 text-rose-500 font-bold text-xs uppercase">
-                            <AlertCircle size={14} />
-                            Crítico
-                          </div>
-                        )}
+                        <button 
+                          onClick={exportToPdf}
+                          disabled={isGeneratingPdf}
+                          className={`w-full py-4 rounded-[2rem] font-bold uppercase tracking-widest text-xs transition-all duration-300 flex items-center justify-center gap-2 shadow-xl ${
+                            isGeneratingPdf 
+                              ? 'bg-slate-700 cursor-not-allowed text-slate-400' 
+                              : 'bg-cyan-600 hover:bg-cyan-500 text-white border border-cyan-400/30 shadow-cyan-950/40'
+                          }`}
+                        >
+                          {isGeneratingPdf ? (
+                            <>
+                              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              Generando...
+                            </>
+                          ) : (
+                            <>
+                              <FileDown size={18} />
+                              Descargar PDF
+                            </>
+                          )}
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-3 mt-10">
-                    <button 
-                      onClick={() => {
-                        alert('Retroalimentación guardada localmente (Simulación)');
-                      }}
-                      className="w-full bg-zinc-900 text-white py-5 rounded-[2rem] font-bold uppercase tracking-widest text-xs hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 shadow-2xl shadow-zinc-200"
-                    >
-                      <Save size={18} />
-                      Guardar Retroalimentación
-                    </button>
-
-                    <button 
-                      onClick={() => setIsPrintMode(true)}
-                      className="w-full bg-zinc-100 text-zinc-900 py-4 rounded-[2rem] font-bold uppercase tracking-widest text-[10px] hover:bg-zinc-200 transition-all flex items-center justify-center gap-2 border border-zinc-200"
-                    >
-                      <Printer size={16} />
-                      Vista Previa e Impresión
-                    </button>
-
-                    <button 
-                      onClick={exportToPdf}
-                      disabled={isGeneratingPdf}
-                      className={`w-full py-5 rounded-[2rem] font-bold uppercase tracking-widest text-xs transition-all flex items-center justify-center gap-2 shadow-xl ${
-                        isGeneratingPdf 
-                          ? 'bg-zinc-400 cursor-not-allowed' 
-                          : 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-100'
-                      }`}
-                    >
-                      {isGeneratingPdf ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                          Generando...
-                        </>
-                      ) : (
-                        <>
-                          <FileDown size={18} />
-                          Descargar PDF
-                        </>
-                      )}
-                    </button>
+                  <div className="bg-slate-900/80 border border-slate-800 p-8 rounded-[2.5rem] text-slate-200">
+                    <h4 className="text-[10px] font-bold uppercase tracking-widest mb-4 text-slate-400">Instrucciones de Calificación</h4>
+                    <ul className="space-y-3 text-[11px] font-medium text-slate-300">
+                      <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-slate-800 flex items-center justify-center font-bold text-cyan-400">5</span> Excelente (Dominio total)</li>
+                      <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-slate-800 flex items-center justify-center font-bold text-cyan-400">4</span> Bueno (Cumple el estándar)</li>
+                      <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-slate-800 flex items-center justify-center font-bold text-cyan-400">3</span> Regular (Requiere mejora)</li>
+                      <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-slate-800 flex items-center justify-center font-bold text-cyan-400">2</span> Deficiente (Afecta ingresos)</li>
+                      <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-slate-800 flex items-center justify-center font-bold text-cyan-400">1</span> Crítico (Falta grave)</li>
+                    </ul>
                   </div>
                 </div>
-              </div>
-
-              <div className="bg-zinc-900 p-8 rounded-[2.5rem] text-white">
-                <h4 className="text-[10px] font-bold uppercase tracking-widest mb-4 opacity-40">Instrucciones de Calificación</h4>
-                <ul className="space-y-3 text-[11px] font-medium opacity-80">
-                  <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-white/10 flex items-center justify-center font-bold">5</span> Excelente (Dominio total)</li>
-                  <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-white/10 flex items-center justify-center font-bold">4</span> Bueno (Cumple el estándar)</li>
-                  <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-white/10 flex items-center justify-center font-bold">3</span> Regular (Requiere mejora)</li>
-                  <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-white/10 flex items-center justify-center font-bold">2</span> Deficiente (Afecta ingresos)</li>
-                  <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-white/10 flex items-center justify-center font-bold">1</span> Crítico (Falta grave)</li>
-                </ul>
               </div>
             </div>
-          </div>
-        </div>
-      </main>
+          </main>
         </>
       )}
 
@@ -755,7 +933,7 @@ export default function App() {
           position: 'fixed', 
           left: '-9999px', 
           top: '0', 
-          width: '1024px', // Standard desktop width for better layout
+          width: '1024px',
           background: 'white',
           zIndex: -1
         }}
@@ -772,14 +950,13 @@ export default function App() {
 
       {/* Footer Branding */}
       {!isPrintMode && (
-        <footer className="max-w-7xl mx-auto px-6 py-12 border-t border-zinc-200 flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex items-center gap-2 opacity-30">
-            <div className="w-8 h-8 bg-zinc-900 rounded-lg"></div>
-            <span className="font-black italic uppercase tracking-tighter">
-              <span className="text-rose-600">Tribu</span> <span className="text-zinc-900">1126</span>
-            </span>
+        <footer className="max-w-7xl mx-auto px-6 py-12 border-t border-slate-800/80 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex items-center gap-3">
+            <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-8 w-auto object-contain opacity-80" />
           </div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">© {new Date().getFullYear()} TRIBU 1126 MODELS. Todos los derechos reservados.</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
+            © {new Date().getFullYear()} Conectado a Firestore & Firebase Auth.
+          </p>
         </footer>
       )}
     </div>
