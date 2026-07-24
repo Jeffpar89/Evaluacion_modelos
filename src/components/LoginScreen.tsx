@@ -47,7 +47,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
           
           {/* Logo */}
           <div>
-            <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-28 w-auto mb-4 object-contain mx-auto" />
+            <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-36 w-auto mb-4 object-contain mx-auto" />
             <p className="text-xs font-bold uppercase tracking-widest text-slate-400 mt-2">
               Audit System & Model Performance
             </p>

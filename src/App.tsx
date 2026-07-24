@@ -48,7 +48,7 @@ const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, sta
   >
     <div className="flex justify-between items-start mb-8 border-b-2 border-zinc-900 pb-4">
       <div className="flex items-center gap-4">
-        <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-16 w-auto object-contain" />
+        <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-20 w-auto object-contain" />
         <div>
           <p className="text-xs font-mono uppercase tracking-widest opacity-60">Evaluación de Desempeño y Calidad - Modelos</p>
         </div>
@@ -509,7 +509,7 @@ export default function App() {
                 <img 
                   src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" 
                   alt="Logo" 
-                  className="h-14 w-auto object-contain" 
+                  className="h-18 md:h-20 w-auto object-contain" 
                 />
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 flex items-center gap-1">
@@ -952,7 +952,7 @@ export default function App() {
       {!isPrintMode && (
         <footer className="max-w-7xl mx-auto px-6 py-12 border-t border-slate-800/80 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex items-center gap-3">
-            <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-8 w-auto object-contain opacity-80" />
+            <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-12 w-auto object-contain opacity-80" />
           </div>
           <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500">
             © {new Date().getFullYear()} Conectado a Firestore & Firebase Auth.
