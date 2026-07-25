@@ -43,12 +43,17 @@ interface PrintViewProps {
 const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, stats, onBack, calculateAverage }, ref) => (
   <div 
     ref={ref} 
-    className="bg-white p-8 text-zinc-900 max-w-4xl mx-auto print:p-0 h-auto shadow-none"
-    style={{ colorScheme: 'light' }}
+    className="bg-white p-8 text-zinc-900 w-[760px] mx-auto print:p-0 h-auto shadow-none font-sans"
+    style={{ colorScheme: 'light', background: '#ffffff' }}
   >
-    <div className="flex justify-between items-start mb-8 border-b-2 border-zinc-900 pb-4">
+    <div className="flex justify-between items-start mb-6 border-b-2 border-zinc-900 pb-4">
       <div className="flex items-center gap-4">
-        <img src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" alt="Logo" className="h-20 w-auto object-contain" />
+        <img 
+          src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" 
+          alt="Logo" 
+          crossOrigin="anonymous"
+          className="h-16 w-auto object-contain" 
+        />
         <div>
           <p className="text-xs font-mono uppercase tracking-widest opacity-60">Evaluación de Desempeño y Calidad - Modelos</p>
         </div>
@@ -56,7 +61,7 @@ const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, sta
       <div className="flex items-start gap-6">
         <div className="text-right">
           <span className="text-[10px] font-bold uppercase text-zinc-400 block">Score Total</span>
-          <span className="text-5xl font-black italic tracking-tighter leading-none text-zinc-900">{stats.overallAvg}</span>
+          <span className="text-4xl font-black italic tracking-tighter leading-none text-zinc-900">{stats.overallAvg}</span>
         </div>
         {onBack && (
           <button 
@@ -69,56 +74,56 @@ const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, sta
       </div>
     </div>
 
-    <div className="grid grid-cols-2 gap-6 mb-8 bg-zinc-50 p-6 rounded-2xl border border-zinc-200">
-      <div className="space-y-2">
-        <p className="text-xs font-bold uppercase text-zinc-400">Fecha de Evaluación</p>
-        <p className="font-medium">{audit.header.date}</p>
+    <div className="grid grid-cols-2 gap-4 mb-6 bg-zinc-50 p-5 rounded-2xl border border-zinc-200">
+      <div className="space-y-1">
+        <p className="text-[10px] font-bold uppercase text-zinc-400">Fecha de Evaluación</p>
+        <p className="text-xs font-semibold">{audit.header.date}</p>
       </div>
-      <div className="space-y-2">
-        <p className="text-xs font-bold uppercase text-zinc-400">Periodo Evaluado</p>
-        <p className="font-medium">{audit.header.period || 'N/A'}</p>
+      <div className="space-y-1">
+        <p className="text-[10px] font-bold uppercase text-zinc-400">Periodo Evaluado</p>
+        <p className="text-xs font-semibold">{audit.header.period || 'N/A'}</p>
       </div>
-      <div className="space-y-2">
-        <p className="text-xs font-bold uppercase text-zinc-400">Auditor(a)</p>
-        <p className="font-medium">{audit.header.auditorName || 'N/A'}</p>
+      <div className="space-y-1">
+        <p className="text-[10px] font-bold uppercase text-zinc-400">Auditor(a)</p>
+        <p className="text-xs font-semibold">{audit.header.auditorName || 'N/A'}</p>
       </div>
-      <div className="space-y-2">
-        <p className="text-xs font-bold uppercase text-zinc-400">Modelo Evaluada</p>
-        <p className="font-medium">{audit.header.modelName || 'N/A'}</p>
+      <div className="space-y-1">
+        <p className="text-[10px] font-bold uppercase text-zinc-400">Modelo Evaluada</p>
+        <p className="text-xs font-semibold">{audit.header.modelName || 'N/A'}</p>
       </div>
-      <div className="col-span-2 space-y-2">
-        <p className="text-xs font-bold uppercase text-zinc-400">Monitor(a) en Turno</p>
-        <p className="font-medium">{audit.header.monitorName || 'N/A'}</p>
+      <div className="col-span-2 space-y-1">
+        <p className="text-[10px] font-bold uppercase text-zinc-400">Monitor(a) en Turno</p>
+        <p className="text-xs font-semibold">{audit.header.monitorName || 'N/A'}</p>
       </div>
     </div>
 
     {(Object.keys(audit.sections) as Array<keyof AuditData['sections']>).map((key) => {
       const section = audit.sections[key];
       return (
-        <div key={key} className="mb-10">
-          <div className="flex justify-between items-end mb-4 border-b border-zinc-200 pb-2">
-            <h2 className="text-lg font-bold uppercase tracking-tight">{section.title}</h2>
+        <div key={key} className="mb-6" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <div className="flex justify-between items-end mb-3 border-b border-zinc-200 pb-2">
+            <h2 className="text-sm font-bold uppercase tracking-tight text-zinc-900">{section.title}</h2>
             <div className="text-right">
-              <span className="text-[10px] font-bold uppercase text-zinc-400 block">Promedio Sección</span>
-              <span className="text-xl font-black italic">
+              <span className="text-[9px] font-bold uppercase text-zinc-400 block">Promedio</span>
+              <span className="text-lg font-black italic text-zinc-900">
                 {calculateAverage(section.criteria)}
               </span>
             </div>
           </div>
-          <table className="w-full text-sm">
+          <table className="w-full text-xs">
             <thead>
-              <tr className="text-left border-b border-zinc-100">
-                <th className="py-2 font-bold uppercase text-[10px] text-zinc-400 w-1/2">Criterio</th>
-                <th className="py-2 font-bold uppercase text-[10px] text-zinc-400 text-center w-16">Cal.</th>
-                <th className="py-2 font-bold uppercase text-[10px] text-zinc-400">Observaciones</th>
+              <tr className="text-left border-b border-zinc-200 bg-zinc-50">
+                <th className="py-2 px-2 font-bold uppercase text-[9px] text-zinc-500 w-1/2">Criterio</th>
+                <th className="py-2 px-2 font-bold uppercase text-[9px] text-zinc-500 text-center w-16">Cal.</th>
+                <th className="py-2 px-2 font-bold uppercase text-[9px] text-zinc-500">Observaciones</th>
               </tr>
             </thead>
             <tbody>
               {section.criteria.map(c => (
-                <tr key={c.id} className="border-b border-zinc-50">
-                  <td className="py-3 pr-4 leading-tight">{c.label}</td>
-                  <td className="py-3 text-center font-bold">{c.score}</td>
-                  <td className="py-3 italic text-zinc-600">{c.observations || '-'}</td>
+                <tr key={c.id} className="border-b border-zinc-100">
+                  <td className="py-2 px-2 leading-tight font-medium text-zinc-800">{c.label}</td>
+                  <td className="py-2 px-2 text-center font-bold text-zinc-900">{c.score}</td>
+                  <td className="py-2 px-2 italic text-zinc-600">{c.observations || '-'}</td>
                 </tr>
               ))}
             </tbody>
@@ -127,39 +132,39 @@ const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, sta
       );
     })}
 
-    <div className="space-y-6 mt-12">
-      <div className="p-6 bg-zinc-900 text-white rounded-3xl">
-        <h3 className="text-xs font-bold uppercase tracking-widest mb-4 opacity-50">RESUMEN DE LA EVALUACIÓN Y PLAN DE ACCIÓN</h3>
-        <div className="space-y-4">
+    <div className="space-y-4 mt-8" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div className="p-5 bg-zinc-900 text-white rounded-2xl">
+        <h3 className="text-[10px] font-bold uppercase tracking-widest mb-3 opacity-60 text-slate-300">RESUMEN DE LA EVALUACIÓN Y PLAN DE ACCIÓN</h3>
+        <div className="space-y-3">
           <div>
-            <span className="text-[10px] font-bold uppercase opacity-50">Fortalezas:</span>
-            <p className="text-sm mt-1">{audit.results.strengths || 'Sin observaciones.'}</p>
+            <span className="text-[9px] font-bold uppercase opacity-50 block text-slate-400">Fortalezas:</span>
+            <p className="text-xs mt-0.5 text-slate-200">{audit.results.strengths || 'Sin observaciones.'}</p>
           </div>
           <div>
-            <span className="text-[10px] font-bold uppercase opacity-50">Áreas de Mejora:</span>
-            <p className="text-sm mt-1">{audit.results.improvementAreas || 'Sin observaciones.'}</p>
+            <span className="text-[9px] font-bold uppercase opacity-50 block text-slate-400">Áreas de Mejora:</span>
+            <p className="text-xs mt-0.5 text-slate-200">{audit.results.improvementAreas || 'Sin observaciones.'}</p>
           </div>
-          <div className="pt-4 border-t border-white/10">
-            <span className="text-[10px] font-bold uppercase opacity-50">Acuerdos y Compromisos:</span>
-            <p className="text-sm italic mt-1">{audit.results.agreements || 'Ninguno.'}</p>
+          <div className="pt-3 border-t border-white/10">
+            <span className="text-[9px] font-bold uppercase opacity-50 block text-slate-400">Acuerdos y Compromisos:</span>
+            <p className="text-xs italic mt-0.5 text-slate-300">{audit.results.agreements || 'Ninguno.'}</p>
           </div>
         </div>
       </div>
     </div>
 
-    <div className="mt-16 flex justify-between items-center pt-8 border-t border-zinc-200">
-      <div className="text-center w-48">
-        <div className="border-b border-zinc-900 mb-2"></div>
-        <p className="text-[10px] font-bold uppercase">Firma Auditor(a)</p>
+    <div className="mt-12 flex justify-between items-center pt-6 border-t border-zinc-200" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+      <div className="text-center w-44">
+        <div className="border-b border-zinc-900 mb-1"></div>
+        <p className="text-[9px] font-bold uppercase text-zinc-600">Firma Auditor(a)</p>
       </div>
       <div className="text-center">
-        <p className="text-xs font-bold uppercase opacity-30">
-          <span className="text-rose-600">Tribu</span> <span className="text-zinc-900">1126</span> Models - {new Date().getFullYear()}
+        <p className="text-[10px] font-bold uppercase opacity-40 text-zinc-500">
+          IN SYSTEM - EVALUACIÓN DE DESEMPEÑO {new Date().getFullYear()}
         </p>
       </div>
-      <div className="text-center w-48">
-        <div className="border-b border-zinc-900 mb-2"></div>
-        <p className="text-[10px] font-bold uppercase">Firma Modelo</p>
+      <div className="text-center w-44">
+        <div className="border-b border-zinc-900 mb-1"></div>
+        <p className="text-[9px] font-bold uppercase text-zinc-600">Firma Modelo</p>
       </div>
     </div>
   </div>
@@ -318,123 +323,29 @@ export default function App() {
   };
 
   const exportToPdf = () => {
-    const element = pdfRef.current;
-    if (!element) {
-      alert('Error: No se encontró el elemento para generar el PDF');
-      return;
-    }
-
     setIsGeneratingPdf(true);
-    window.scrollTo(0, 0);
 
     setTimeout(async () => {
+      const element = pdfRef.current;
+      if (!element) {
+        alert('Error: No se encontró el elemento para generar el PDF');
+        setIsGeneratingPdf(false);
+        return;
+      }
+
       try {
         const opt = {
-          margin: [10, 10],
-          filename: `Retroalimentacion_${audit.header.modelName || 'Modelo'}_${audit.header.date || 'Fecha'}.pdf`,
+          margin: [8, 8, 8, 8],
+          filename: `Evaluacion_${audit.header.modelName || 'Modelo'}_${audit.header.date || 'Fecha'}.pdf`,
           image: { type: 'jpeg', quality: 0.98 },
           html2canvas: { 
             scale: 2,
             useCORS: true, 
             logging: false,
-            backgroundColor: '#ffffff',
-            removeContainer: true,
-            // @ts-ignore
-            onclone: (clonedDoc) => {
-              const styleSheets = Array.from(clonedDoc.querySelectorAll('style, link[rel="stylesheet"]'));
-              styleSheets.forEach((s: any) => s.remove());
-
-              const safeStyle = clonedDoc.createElement('style');
-              safeStyle.innerHTML = `
-                @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
-                * { box-sizing: border-box; -webkit-print-color-adjust: exact; }
-                body, html { margin: 0; padding: 0; background: #ffffff; font-family: 'Inter', sans-serif; font-size: 11px; }
-                #pdf-export-container { width: 750px !important; margin: 0 auto !important; background: #ffffff !important; color: #18181b !important; display: block !important; position: relative !important; }
-                .bg-white { background-color: #ffffff !important; }
-                .bg-zinc-50 { background-color: #fafafa !important; }
-                .bg-zinc-900 { background-color: #18181b !important; }
-                .text-zinc-900 { color: #18181b !important; }
-                .text-zinc-600 { color: #52525b !important; }
-                .text-zinc-400 { color: #a1a1aa !important; }
-                .text-white { color: #ffffff !important; }
-                .text-rose-600 { color: #e11d48 !important; }
-                .border-zinc-900 { border-color: #18181b !important; }
-                .border-zinc-200 { border-color: #e4e4e7 !important; }
-                .border-zinc-100 { border-color: #f4f4f5 !important; }
-                .border-zinc-50 { border-color: #fafafa !important; }
-                .border-white\\/10 { border-color: rgba(255, 255, 255, 0.1) !important; }
-                .font-black { font-weight: 900 !important; }
-                .font-bold { font-weight: 700 !important; }
-                .font-medium { font-weight: 500 !important; }
-                .italic { font-style: italic !important; }
-                .uppercase { text-transform: uppercase !important; }
-                .tracking-tighter { letter-spacing: -0.05em !important; }
-                .tracking-tight { letter-spacing: -0.025em !important; }
-                .tracking-widest { letter-spacing: 0.1em !important; }
-                .text-3xl { font-size: 1.5rem !important; }
-                .text-5xl { font-size: 2.5rem !important; }
-                .leading-none { line-height: 1 !important; }
-                .text-2xl { font-size: 1.25rem !important; }
-                .text-xl { font-size: 1.1rem !important; }
-                .text-lg { font-size: 1rem !important; }
-                .text-sm { font-size: 0.75rem !important; }
-                .text-xs { font-size: 0.65rem !important; }
-                .text-\\[10px\\] { font-size: 9px !important; }
-                .p-8 { padding: 1.25rem !important; }
-                .p-6 { padding: 1rem !important; }
-                .pb-4 { padding-bottom: 0.75rem !important; }
-                .pb-2 { padding-bottom: 0.35rem !important; }
-                .pt-4 { padding-top: 0.75rem !important; }
-                .pt-8 { padding-top: 1.25rem !important; }
-                .py-2 { padding-top: 0.35rem !important; padding-bottom: 0.35rem !important; }
-                .py-3 { padding-top: 0.5rem !important; padding-bottom: 0.5rem !important; }
-                .pr-4 { padding-right: 0.75rem !important; }
-                .mb-8 { margin-bottom: 1rem !important; }
-                .mb-10 { margin-bottom: 1.25rem !important; }
-                .mb-4 { margin-bottom: 0.5rem !important; }
-                .mb-2 { margin-bottom: 0.25rem !important; }
-                .mt-1 { margin-top: 0.15rem !important; }
-                .mt-12 { margin-top: 1.5rem !important; }
-                .mt-16 { margin-top: 2rem !important; }
-                .grid { display: grid !important; }
-                .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
-                .gap-6 { gap: 1rem !important; }
-                .flex { display: flex !important; }
-                .justify-between { justify-content: space-between !important; }
-                .items-start { align-items: flex-start !important; }
-                .items-end { align-items: flex-end !important; }
-                .items-center { align-items: center !important; }
-                .border-b-2 { border-bottom-width: 2px !important; }
-                .border-b { border-bottom-width: 1px !important; }
-                .border-t { border-top-width: 1px !important; }
-                .border { border-width: 1px !important; }
-                .rounded-2xl { border-radius: 0.75rem !important; }
-                .rounded-3xl { border-radius: 1rem !important; }
-                .w-full { width: 100% !important; }
-                .w-48 { width: 10rem !important; }
-                .max-w-4xl { max-width: 50rem !important; }
-                table { width: 100% !important; border-collapse: collapse !important; }
-                .opacity-60 { opacity: 0.6 !important; }
-                .opacity-50 { opacity: 0.5 !important; }
-                .opacity-30 { opacity: 0.3 !important; }
-                .space-y-2 > * + * { margin-top: 0.35rem !important; }
-                .space-y-4 > * + * { margin-top: 0.75rem !important; }
-                .space-y-6 > * + * { margin-top: 1rem !important; }
-                .print\\:hidden { display: none !important; }
-              `;
-              clonedDoc.head.appendChild(safeStyle);
-
-              const container = clonedDoc.getElementById('pdf-export-container');
-              if (container) {
-                container.style.position = 'relative';
-                container.style.left = '0';
-                container.style.top = '0';
-                container.style.display = 'block';
-                container.style.visibility = 'visible';
-              }
-            }
+            backgroundColor: '#ffffff'
           },
-          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true }
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+          pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
         };
 
         // @ts-ignore
@@ -445,7 +356,7 @@ export default function App() {
       } finally {
         setIsGeneratingPdf(false);
       }
-    }, 150);
+    }, 300);
   };
 
   // State 1: Cargando Auth
@@ -926,19 +837,16 @@ export default function App() {
         </>
       )}
 
-      {/* Hidden PDF Source - Optimized for html2canvas */}
+      {/* Modal Container para la generación de PDF */}
       <div 
         id="pdf-export-container"
-        style={{ 
-          position: 'fixed', 
-          left: '-9999px', 
-          top: '0', 
-          width: '1024px',
-          background: 'white',
-          zIndex: -1
-        }}
+        className={isGeneratingPdf ? "fixed inset-0 z-[9999] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-auto" : "hidden"}
       >
-        <div className="p-10">
+        <div className="bg-white rounded-3xl p-6 shadow-2xl max-h-[92vh] overflow-y-auto border border-slate-200">
+          <div className="text-center mb-4 text-xs font-bold text-slate-600 uppercase tracking-widest flex items-center justify-center gap-3">
+            <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+            Generando PDF de alta calidad...
+          </div>
           <PrintView 
             ref={pdfRef}
             audit={audit} 
