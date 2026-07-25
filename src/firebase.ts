@@ -22,14 +22,14 @@ import {
 } from 'firebase/firestore';
 import firebaseAppletConfig from '../firebase-applet-config.json';
 
-// Configuración oficial de Firebase del applet
+// Configuración oficial de Firebase del usuario (Retroalimentación Pro)
 export const firebaseConfig = {
-  apiKey: firebaseAppletConfig.apiKey,
-  authDomain: firebaseAppletConfig.authDomain,
-  projectId: firebaseAppletConfig.projectId,
-  storageBucket: firebaseAppletConfig.storageBucket,
-  messagingSenderId: firebaseAppletConfig.messagingSenderId,
-  appId: firebaseAppletConfig.appId
+  apiKey: "AIzaSyCwn6t_gLxMsv78Xi8MP6j7rhjZzc7bEXM",
+  authDomain: "retroalimentacion-pro.firebaseapp.com",
+  projectId: "retroalimentacion-pro",
+  storageBucket: "retroalimentacion-pro.firebasestorage.app",
+  messagingSenderId: "1056502764759",
+  appId: "1:1056502764759:web:809e76733588769b7e0c92"
 };
 
 // Comprobación si las credenciales han sido configuradas
@@ -41,10 +41,7 @@ export const isFirebaseConfigured = () => {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-const databaseId = (firebaseAppletConfig as any).firestoreDatabaseId;
-export const db = databaseId && databaseId !== '(default)'
-  ? getFirestore(app, databaseId)
-  : getFirestore(app);
+export const db = getFirestore(app);
 
 export const googleProvider = new GoogleAuthProvider();
 
