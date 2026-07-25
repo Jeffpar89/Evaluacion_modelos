@@ -51,7 +51,6 @@ const PrintView = React.forwardRef<HTMLDivElement, PrintViewProps>(({ audit, sta
         <img 
           src="https://i.ibb.co/svnGzx0f/IN-SYSTEM-09-red.png" 
           alt="Logo" 
-          crossOrigin="anonymous"
           className="h-16 w-auto object-contain" 
         />
         <div>
@@ -341,8 +340,10 @@ export default function App() {
           html2canvas: { 
             scale: 2,
             useCORS: true, 
+            allowTaint: true,
             logging: false,
-            backgroundColor: '#ffffff'
+            backgroundColor: '#ffffff',
+            windowWidth: 800
           },
           jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
           pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
@@ -352,11 +353,11 @@ export default function App() {
         await html2pdf().set(opt).from(element).save();
       } catch (error) {
         console.error('Error generating PDF:', error);
-        alert('Hubo un error al generar el PDF.');
+        alert('Hubo un problema al generar el PDF.');
       } finally {
         setIsGeneratingPdf(false);
       }
-    }, 300);
+    }, 200);
   };
 
   // State 1: Cargando Auth
@@ -837,23 +838,34 @@ export default function App() {
         </>
       )}
 
-      {/* Modal Container para la generación de PDF */}
+      {/* Indicator de carga al generar PDF */}
+      {isGeneratingPdf && (
+        <div className="fixed inset-0 z-[9999] bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700/80 rounded-2xl p-6 text-center text-white shadow-2xl flex items-center gap-4">
+            <div className="w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
+            <p className="text-xs font-bold uppercase tracking-widest text-slate-200">Generando documento PDF...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Offscreen PDF Source element - Always rendered in DOM with clean dimensions */}
       <div 
         id="pdf-export-container"
-        className={isGeneratingPdf ? "fixed inset-0 z-[9999] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-auto" : "hidden"}
+        style={{ 
+          position: 'absolute', 
+          left: '-9999px', 
+          top: '0', 
+          width: '800px',
+          background: '#ffffff',
+          zIndex: -100
+        }}
       >
-        <div className="bg-white rounded-3xl p-6 shadow-2xl max-h-[92vh] overflow-y-auto border border-slate-200">
-          <div className="text-center mb-4 text-xs font-bold text-slate-600 uppercase tracking-widest flex items-center justify-center gap-3">
-            <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"></div>
-            Generando PDF de alta calidad...
-          </div>
-          <PrintView 
-            ref={pdfRef}
-            audit={audit} 
-            stats={stats} 
-            calculateAverage={calculateAverage}
-          />
-        </div>
+        <PrintView 
+          ref={pdfRef}
+          audit={audit} 
+          stats={stats} 
+          calculateAverage={calculateAverage}
+        />
       </div>
 
       {/* Footer Branding */}

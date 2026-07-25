@@ -22,22 +22,19 @@ import {
 } from 'firebase/firestore';
 import firebaseAppletConfig from '../firebase-applet-config.json';
 
-// Configuración oficial de Firebase del usuario
+// Configuración oficial de Firebase del applet
 export const firebaseConfig = {
-  apiKey: "AIzaSyCwn6t_gLxMsv78Xi8MP6j7rhjZzc7bEXM",
-  authDomain: "retroalimentacion-pro.firebaseapp.com",
-  projectId: "retroalimentacion-pro",
-  storageBucket: "retroalimentacion-pro.firebasestorage.app",
-  messagingSenderId: "1056502764759",
-  appId: "1:1056502764759:web:809e76733588769b7e0c92"
+  apiKey: firebaseAppletConfig.apiKey,
+  authDomain: firebaseAppletConfig.authDomain,
+  projectId: firebaseAppletConfig.projectId,
+  storageBucket: firebaseAppletConfig.storageBucket,
+  messagingSenderId: firebaseAppletConfig.messagingSenderId,
+  appId: firebaseAppletConfig.appId
 };
 
 // Comprobación si las credenciales han sido configuradas
 export const isFirebaseConfigured = () => {
-  return firebaseConfig.apiKey !== "" && 
-         firebaseConfig.apiKey !== "TU_API_KEY_AQUI" && 
-         firebaseConfig.projectId !== "" && 
-         firebaseConfig.projectId !== "TU_PROJECT_ID_AQUI";
+  return Boolean(firebaseConfig.apiKey && firebaseConfig.projectId);
 };
 
 // Inicializar Firebase
